@@ -1,0 +1,1 @@
+worker: python SAKUNYA_is_cute.py
