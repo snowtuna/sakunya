@@ -6,6 +6,9 @@ from collections import defaultdict, deque
 import time
 import re
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -14,8 +17,8 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="^w^ ", intents=intents)
 
-TIME_WINDOW = 2    
-MAX_MESSAGES = 5     
+TIME_WINDOW = 2
+MAX_MESSAGES = 4      
 
 INVITE_REGEX = re.compile(
     r"(?:https?://)?(?:www\.)?(?:discord\.(?:gg|io|me|li)|discord(?:app)?\.com/invite)/\w+",
@@ -41,6 +44,7 @@ async def on_message(message):
     user_id = message.author.id
     channel = message.channel
 
+
     if INVITE_REGEX.search(message.content):
         try:
             await message.delete()
@@ -53,8 +57,7 @@ async def on_message(message):
             )
             embed.set_footer(text="Unauthorized links are not permitted.")
             
-            warning = await channel.send(embed=embed)
-            await warning.delete(delay=6)
+            await channel.send(embed=embed)
             return
         except discord.Forbidden:
             print("uwa! Please check my permissions. I can't delete messages or ban users.")
@@ -62,25 +65,30 @@ async def on_message(message):
 
     timestamps = user_message_times[user_id]
     
-    while timestamps and current_time - timestamps[0] > TIME_WINDOW:
+
+    while timestamps and current_time - timestamps[0][0] > TIME_WINDOW:
         timestamps.popleft()
 
-    timestamps.append(current_time)
+    timestamps.append((current_time, message))
+
 
     if len(timestamps) >= MAX_MESSAGES:
         try:
-            await message.delete()
+
             await message.author.ban(reason="Spamming is not allowed!")
-            
+            for _, msg in list(timestamps):
+                try:
+                    await msg.delete()
+                except (discord.NotFound, discord.Forbidden):
+                    pass
+
             embed = discord.Embed(
                 title="🛡️ Sakunya  - Raid/Spam Notice",
                 description=f"User: {message.author.mention} (`{message.author.id}`)\nReason: Message spam frequency exceeded the limit.",
                 color=discord.Color.orange()
             )
             embed.set_footer(text="Raiding or spamming are not welcomed.")
-            
-            warning = await channel.send(embed=embed)
-            await warning.delete(delay=6)
+            await channel.send(embed=embed)
             
             timestamps.clear()
             return
@@ -88,6 +96,7 @@ async def on_message(message):
             print("uwa! Please check my permissions. I can't delete messages or ban users.")
 
     await bot.process_commands(message)
+
 @bot.command(name="info")
 async def info(ctx):
     embed = discord.Embed(
@@ -99,4 +108,5 @@ async def info(ctx):
     embed.set_footer(text="Sakunya is always at your service - 26 Jul 2026")
     
     await ctx.send(embed=embed)
+
 bot.run(os.getenv("TOKEN"))
