@@ -1,99 +1,101 @@
-#sakunya is at your service
-
+import os, time
+from collections import defaultdict, deque
 import discord
 from discord.ext import commands
-from collections import defaultdict, deque
-import time
-import re
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
 intents = discord.Intents.default()
-intents.message_content = True
-intents.guilds = True
-intents.members = True
+intents.message_content = intents.guilds = intents.members = True
 
 bot = commands.Bot(command_prefix="^w^ ", intents=intents)
 
-TIME_WINDOW = 2
-MAX_MESSAGES = 4      
+timewindow = int(os.getenv("timewindow", 2))
+maxmsg = int(os.getenv("maxmsg", 4))
+user_message_times = defaultdict(lambda: deque(maxlen=maxmsg))
 
-INVITE_REGEX = re.compile(
-    r"(?:https?://)?(?:www\.)?(?:discord\.(?:gg|io|me|li)|discord(?:app)?\.com/invite)/\w+",
-    re.IGNORECASE
-)
+class CommandPaginator(discord.ui.View):
+    def __init__(self, pages, author_id):
+        super().__init__(timeout=60)
+        self.pages, self.author_id, self.current_page = pages, author_id, 0
+        self.next_button.disabled = (len(pages) <= 1)
 
-user_message_times = defaultdict(lambda: deque(maxlen=MAX_MESSAGES))
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("Unable to access.", ephemeral=True)
+            return False
+        return True
+
+    async def _change_page(self, interaction: discord.Interaction, diff: int):
+        self.current_page += diff
+        self.prev_button.disabled = (self.current_page == 0)
+        self.next_button.disabled = (self.current_page == len(self.pages) - 1)
+        await interaction.response.edit_message(embed=self.pages[self.current_page], view=self)
+
+    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary, disabled=True)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._change_page(interaction, -1)
+
+    @discord.ui.button(label="▶", style=discord.ButtonStyle.primary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._change_page(interaction, 1)
 
 @bot.event
 async def on_ready():
-    print("Sakunya is at your service.")
+    print("sakunya is at your service.")
+    await bot.change_presence(
+        status=discord.Status.online,
+        activity=discord.CustomActivity(name="^w^ info // sakunya is now protecting your server🗡️", emoji="🗡️")
+    )
+
+async def _punish_user(member, channel, title, reason, footer):
+    try:
+        await member.ban(reason=reason, delete_message_seconds=3600)
+        embed = discord.Embed(
+            title=title, 
+            description=f"User: {member.mention} (`{member.id}`)\nReason: {reason}", 
+            color=discord.Color.red()
+        )
+        embed.set_footer(text=footer)
+        await channel.send(embed=embed)
+    except discord.Forbidden:
+        print("uwah! Please check my permissions. I can't delete messages or ban users.")
 
 @bot.event
 async def on_message(message):
-    if message.author.bot:
+    if message.author.bot or not message.guild:
         return
 
-    if message.author.guild_permissions.administrator:
-        await bot.process_commands(message)
-        return
-
-    current_time = time.time()
-    user_id = message.author.id
-    channel = message.channel
-
-
-    if INVITE_REGEX.search(message.content):
-        try:
-            await message.delete()
-            await message.author.ban(reason="Unauthorized Discord invite link sent")
-            
-            embed = discord.Embed(
-                title="🛡️ Sakunya - Raid/Ban Notice",
-                description=f"User: {message.author.mention} (`{message.author.id}`)\nReason: Unauthorized Discord invite link.",
-                color=discord.Color.red()
+    if not message.author.guild_permissions.administrator:
+        content_lower = message.content.lower()
+        
+        if any(k in content_lower for k in ["discord.gg/", "discord.com/invite/", "discordapp.com/invite/"]):
+            await _punish_user(
+                message.author, 
+                message.channel, 
+                "🛡️ Sakunya - Raid/Ban Notice", 
+                "Unauthorized Discord invite link.", 
+                "Unauthorized links are not permitted."
             )
-            embed.set_footer(text="Unauthorized links are not permitted.")
-            
-            await channel.send(embed=embed)
-            return
-        except discord.Forbidden:
-            print("uwa! Please check my permissions. I can't delete messages or ban users.")
             return
 
-    timestamps = user_message_times[user_id]
-    
+        now = time.time()
+        times = user_message_times[message.author.id]
+        while times and now - times[0] > timewindow:
+            times.popleft()
+        times.append(now)
 
-    while timestamps and current_time - timestamps[0][0] > TIME_WINDOW:
-        timestamps.popleft()
-
-    timestamps.append((current_time, message))
-
-
-    if len(timestamps) >= MAX_MESSAGES:
-        try:
-
-            await message.author.ban(reason="Spamming is not allowed!")
-            for _, msg in list(timestamps):
-                try:
-                    await msg.delete()
-                except (discord.NotFound, discord.Forbidden):
-                    pass
-
-            embed = discord.Embed(
-                title="🛡️ Sakunya  - Raid/Spam Notice",
-                description=f"User: {message.author.mention} (`{message.author.id}`)\nReason: Message spam frequency exceeded the limit.",
-                color=discord.Color.orange()
+        if len(times) >= maxmsg:
+            times.clear()
+            await _punish_user(
+                message.author, 
+                message.channel, 
+                "🛡️ Sakunya - Raid/Spam Notice", 
+                "Message spam frequency exceeded the limit.", 
+                "Raiding or spamming are not welcomed."
             )
-            embed.set_footer(text="Raiding or spamming are not welcomed.")
-            await channel.send(embed=embed)
-            
-            timestamps.clear()
             return
-        except discord.Forbidden:
-            print("uwa! Please check my permissions. I can't delete messages or ban users.")
 
     await bot.process_commands(message)
 
@@ -101,12 +103,58 @@ async def on_message(message):
 async def info(ctx):
     embed = discord.Embed(
         title="✨ Sakunya Bot Info",
-        description="Sakunya is actively protecting this server from spam and unauthorized invite links!\n\n"
-        "*More features will be added in the future!*",
-        color=discord.Color.blurple()
+        description="Sakunya is actively protecting this server from spam and unauthorized invite links!\n"
+                    "Check out the commands by using `^w^ cmd` \n\n"
+                    "*More features will be added in the future!*",
+        color=discord.Color.blurple(),
+        timestamp=discord.utils.utcnow()
     )
-    embed.set_footer(text="Sakunya is always at your service - 26 Jul 2026")
-    
+    embed.set_footer(text="sakunya")
     await ctx.send(embed=embed)
+
+@bot.command(name="clear")
+@commands.has_permissions(administrator=True)
+async def clear(ctx):
+    deleted = await ctx.channel.purge(
+        limit=100, 
+        check=lambda m: m.author == bot.user and m.embeds and "🛡️" in (m.embeds[0].title or "")
+    )
+    embed = discord.Embed(
+        title="🧹 Sakunya is cleaning...",
+        description=f"Sakunya has cleared {len(deleted)} messages.\n\n*This message will be deleted in 5 seconds.*",
+        color=discord.Color.light_grey()
+    )
+    msg = await ctx.send(embed=embed)
+    await msg.delete(delay=5)
+
+@bot.command(name="cmd")
+async def cmd(ctx):
+    try:
+        with open("commands.txt", "r", encoding="utf-8") as f:
+            lines = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+    except FileNotFoundError:
+        return
+
+    if not lines:
+        return
+
+    ipp = 10
+    total_pages = (len(lines) - 1) // ipp + 1
+    pages = []
+
+    for i in range(0, len(lines), ipp):
+        chunk = lines[i:i + ipp]
+        embed = discord.Embed(
+            title="📖 Sakunya's Command List", 
+            color=discord.Color.blurple(), 
+            timestamp=discord.utils.utcnow()
+        )
+        for cmd_name in chunk:
+            embed.add_field(name=f"**{cmd_name}**", value="\u200b", inline=False)
+        embed.set_footer(text=f"{(i // ipp) + 1} / {total_pages} - sakunya")
+        pages.append(embed)
+
+    view = CommandPaginator(pages, ctx.author.id) if len(pages) > 1 else None
+    await ctx.send(embed=pages[0], view=view)
 
 bot.run(os.getenv("TOKEN"))

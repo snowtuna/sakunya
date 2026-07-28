@@ -1,0 +1,3 @@
+**^w^ info** Information about Sakunya
+**^w^ cmd** Command list
+**^w^ clear** Clear notices
