@@ -117,7 +117,7 @@ async def info(ctx):
 async def clear(ctx):
     deleted = await ctx.channel.purge(
         limit=100, 
-        check=lambda m: m.author == bot.user and m.embeds and "🛡️" in (m.embeds[0].title or "")
+        check=lambda m: m.author == bot.user in (m.embeds[0].title or "")
     )
     embed = discord.Embed(
         title="🧹 Sakunya is cleaning...",
@@ -131,7 +131,7 @@ async def clear(ctx):
 async def cmd(ctx):
     try:
         with open("commands.txt", "r", encoding="utf-8") as f:
-            lines = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+            lines = [line.strip() for line in f if line.strip()]
     except FileNotFoundError:
         return
 
@@ -145,12 +145,11 @@ async def cmd(ctx):
     for i in range(0, len(lines), ipp):
         chunk = lines[i:i + ipp]
         embed = discord.Embed(
+            description="\n".join(f"{cmd_name}" for cmd_name in chunk),
             title="📖 Sakunya's Command List", 
             color=discord.Color.blurple(), 
             timestamp=discord.utils.utcnow()
         )
-        for cmd_name in chunk:
-            embed.add_field(name=f"**{cmd_name}**", value="\u200b", inline=False)
         embed.set_footer(text=f"{(i // ipp) + 1} / {total_pages} - sakunya")
         pages.append(embed)
 
