@@ -1,4 +1,7 @@
 .env
 __pycache__/
-token.env
-*.env
+*.pyc
+.venv/
+env/
+venv/
+*.db

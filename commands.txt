@@ -1,3 +1,4 @@
 **^w^ info** Information about Sakunya
 **^w^ cmd** Command list
 **^w^ clear** Clear notices
+**^w^ setpenalty** Set penalties for further violations
